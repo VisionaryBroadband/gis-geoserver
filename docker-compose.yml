@@ -1,0 +1,63 @@
+name: gis
+
+services:
+  nginx:
+    image: nginx:1.29.0-alpine@sha256:b2e814d28359e77bd0aa5fed1939620075e4ffa0eb20423cc557b375bd5c14ad
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - /etc/ssl/certs:/etc/ssl/certs:ro
+      - /etc/ssl/private:/etc/ssl/private:ro
+    depends_on:
+      - geoserver
+    restart: unless-stopped
+
+  geoserver:
+    build:
+      context: .
+      args:
+        - GEOSERVER_VERSION=2.27.0
+        - CORS_ENABLED=true
+        - CORS_ALLOWED_METHODS=GET,POST,PUT,HEAD,OPTIONS
+    ports:
+      - "8080"
+    environment:
+      - INSTALL_EXTENSIONS=true
+      - STABLE_EXTENSIONS=wps,csw
+      - EXTRA_JAVA_OPTS=-Xms1G -Xmx2G
+      - POSTGRES_JNDI_ENABLED=true
+      - POSTGRES_HOST=postgis
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=geoserver
+      - POSTGRES_USERNAME=geoserver
+      - POSTGRES_PASSWORD=geoserver
+      - POSTGRES_JNDI_RESOURCE_NAME=jdbc/postgres
+      - SKIP_DEMO_DATA=true
+      - HTTP_SCHEME=https
+      - HTTP_PROXY_NAME=beta-maps.vcn.com
+      - PROXY_BASE_URL=https://beta-maps.vcn.com/geoserver
+      - GEOSERVER_CSRF_WHITELIST=beta-maps.vcn.com,beta-maps.vcn.com:443
+    volumes:
+      - ./geoserver_data:/opt/geoserver_data/:Z
+      - ./additional_libs:/opt/additional_libs:Z # by mounting this we can install libs from host on startup
+    healthcheck:
+      test: curl --fail "http://localhost:8080/geoserver/web/wicket/resource/org.geoserver.web.GeoServerBasePage/img/logo.png" || exit 1
+      interval: 1m
+      retries: 3
+      timeout: 20s
+  postgis:
+    image: postgis/postgis:17-3.4-alpine@sha256:5a1dbedac34e0e6663f8b7190d393339571f1cb3ecb2ab2f724524b4f3c7956e
+    ports:
+      - "5555:5432"
+    environment:
+      POSTGRES_USER: geoserver
+      POSTGRES_PASSWORD: geoserver
+    volumes:
+      - ./postgis/postgresql_data:/var/lib/postgresql/data:Z
+    healthcheck:
+      test: pg_isready -U geoserver -h localhost -t 5 || exit 1
+      interval: 10s
+      retries: 5
+      timeout: 10s
