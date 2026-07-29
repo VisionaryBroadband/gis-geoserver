@@ -29,9 +29,12 @@ function build_geoserver_image() {
       elif [[ "$VERSION" == "2.28"* ]]; then	# removing trailing dot, as the check must support both 2.28.x and 2.28-SNAPSHOT
         GEOSERVER_BASE_IMAGE=tomcat:9.0-jdk21-temurin-noble
         BUILDER_BASE_IMAGE=eclipse-temurin:21-jdk-noble
-      else
+      elif [[ "$VERSION" == "2.27"* ]] || [[ "$VERSION" == "2.26"* ]]; then
         GEOSERVER_BASE_IMAGE=tomcat:9.0-jdk17-temurin-noble
         BUILDER_BASE_IMAGE=eclipse-temurin:17-jdk-noble
+      else
+        GEOSERVER_BASE_IMAGE=tomcat:9.0-jdk11-temurin-noble
+        BUILDER_BASE_IMAGE=eclipse-temurin:11-jdk-noble
       fi
 
       # Only nightly/snapshot builds pull WAR and plugins from build.geoserver.org.
