@@ -3,13 +3,14 @@
 # error out if any statements fail
 set -e
 
-MAIN="2.28"
+# update this each time a new release cycle started on https://github.com/geoserver/geoserver
+MAIN="3.1"
 
 function usage() {
   echo "$0 <mode> <version> [<build>]"
   echo ""
   echo " mode : The mode. Choose one of 'build', 'publish' or 'buildandpublish'"
-  echo " version : The released version to build an docker image for (eg: 2.27.1, ${MAIN}-SNAPSHOT, ${MAIN}-RC)"
+  echo " version : The released version to build an docker image for (eg: 2.28.1, ${MAIN}-SNAPSHOT, ${MAIN}-RC)"
   echo " build : Build number (optional)"
 }
 
@@ -21,28 +22,45 @@ function build_geoserver_image() {
     local BRANCH=$5
 
     if [ -n "$VERSION" ] && [ -n "$BUILD" ] && [ -n "$BUILD_GDAL" ] && [ -n "$TAG" ]; then
-      if [ -n "$BRANCH" ]; then
-        # all needed vars are set
 
-        (set -x # echo docker build command
-        docker build \
-            --build-arg WAR_ZIP_URL="https://build.geoserver.org/geoserver/$BRANCH/geoserver-$BRANCH-latest-war.zip" \
-            --build-arg STABLE_PLUGIN_URL="https://build.geoserver.org/geoserver/$BRANCH/ext-latest" \
-            --build-arg COMMUNITY_PLUGIN_URL="https://build.geoserver.org/geoserver/$BRANCH/community-latest" \
-            --build-arg GS_VERSION="$VERSION" \
-            --build-arg GS_BUILD="$BUILD" \
-            --build-arg BUILD_GDAL="$BUILD_GDAL" \
-            -t "$TAG" .)
-      elif [ -z "$BRANCH" ]; then
-        # BRANCH is not set
-
-        (set -x # echo docker build command
-        docker build \
-          --build-arg GS_VERSION=$VERSION \
-          --build-arg GS_BUILD=$BUILD \
-          --build-arg BUILD_GDAL=$BUILD_GDAL \
-          -t $TAG .)
+      if [[ "$VERSION" == "3"* ]]; then
+        GEOSERVER_BASE_IMAGE=tomcat:11.0-jdk21-temurin-noble
+        BUILDER_BASE_IMAGE=eclipse-temurin:21-jdk-noble
+      elif [[ "$VERSION" == "2.28"* ]]; then	# removing trailing dot, as the check must support both 2.28.x and 2.28-SNAPSHOT
+        GEOSERVER_BASE_IMAGE=tomcat:9.0-jdk21-temurin-noble
+        BUILDER_BASE_IMAGE=eclipse-temurin:21-jdk-noble
+      elif [[ "$VERSION" == "2.27"* ]] || [[ "$VERSION" == "2.26"* ]]; then
+        GEOSERVER_BASE_IMAGE=tomcat:9.0-jdk17-temurin-noble
+        BUILDER_BASE_IMAGE=eclipse-temurin:17-jdk-noble
+      else
+        GEOSERVER_BASE_IMAGE=tomcat:9.0-jdk11-temurin-noble
+        BUILDER_BASE_IMAGE=eclipse-temurin:11-jdk-noble
       fi
+
+      # Only nightly/snapshot builds pull WAR and plugins from build.geoserver.org.
+      # Stable releases skip these extra args but must still receive the base
+      # image args and --pull so that builder and runtime images stay in sync
+      # and the latest base images are always used.
+      EXTRA_ARGS=()
+      if [ -n "$BRANCH" ]; then
+        EXTRA_ARGS+=(
+          --build-arg WAR_ZIP_FILE="geoserver-$BRANCH-latest-war.zip"
+          --build-arg WAR_ZIP_URL="https://build.geoserver.org/geoserver/$BRANCH/geoserver-$BRANCH-latest-war.zip"
+          --build-arg STABLE_PLUGIN_URL="https://build.geoserver.org/geoserver/$BRANCH/ext-latest"
+          --build-arg COMMUNITY_PLUGIN_URL="https://build.geoserver.org/geoserver/$BRANCH/community-latest"
+        )
+      fi
+
+      (set -x # echo docker build command
+      docker build \
+          --build-arg GS_VERSION="$VERSION" \
+          --build-arg GS_BUILD="$BUILD" \
+          --build-arg BUILD_GDAL="$BUILD_GDAL" \
+          --build-arg GEOSERVER_BASE_IMAGE="$GEOSERVER_BASE_IMAGE" \
+          --build-arg BUILDER_BASE_IMAGE="$BUILDER_BASE_IMAGE" \
+          --pull \
+          "${EXTRA_ARGS[@]}" \
+          -t "$TAG" .)
 
     else
       echo "Missing required parameters"
@@ -68,8 +86,16 @@ GDAL_SUFFIX=gdal
 
 echo "Building GeoServer Docker Image for version $VERSION"
 
+if [[ $VERSION =~ ^([0-9]+)\.([0-9]+) ]]; then
+  MAJOR="${BASH_REMATCH[1]}"
+  MINOR="${BASH_REMATCH[2]}"
+else
+  echo "Unable to determine major and minor version from $VERSION"
+  exit 1
+fi
+
 if [[ "$VERSION" == *"-M"* ]]; then
-    # release candidate branch release
+    # milestone branch release
     BRANCH="${VERSION}"
     TAG=$BASE:$BRANCH
     GDAL_TAG=$TAG-$GDAL_SUFFIX
@@ -78,21 +104,21 @@ elif [[ "$VERSION" == *"-RC"* ]]; then
     BRANCH="${VERSION}"
     TAG=$BASE:$BRANCH
     GDAL_TAG=$TAG-$GDAL_SUFFIX
-elif [[ "${VERSION:0:4}" == "$MAIN" ]]; then
-  # main branch snapshot release
-  BRANCH=main
+elif [[ "${VERSION}" == "$MAIN"* ]]; then
+  # main branch snapshot release from main
+  BRANCH="main"
   TAG=$BASE:$MAIN.x
   GDAL_TAG=$TAG-$GDAL_SUFFIX
 else
   if [[ "$VERSION" == *"-SNAPSHOT"* ]]; then
-  # stable or maintenance branch snapshot release
-  BRANCH="${VERSION:0:4}.x"
-  TAG=$BASE:$BRANCH
-  GDAL_TAG=$TAG-$GDAL_SUFFIX
+    # stable or maintenance branch snapshot release
+    BRANCH="${MAJOR}.${MINOR}.x"
+    TAG=$BASE:$BRANCH
+    GDAL_TAG=$TAG-$GDAL_SUFFIX
   else
-  BRANCH="${VERSION:0:4}.x"
-  TAG=$BASE:$VERSION
-  GDAL_TAG=$TAG-$GDAL_SUFFIX
+    BRANCH="${MAJOR}.${MINOR}.x"
+    TAG=$BASE:$VERSION
+    GDAL_TAG=$TAG-$GDAL_SUFFIX
   fi
 fi
 
@@ -102,6 +128,8 @@ fi
 echo "Release from branch $BRANCH GeoServer $VERSION as $TAG"
 echo "Release from branch $BRANCH GeoServer $VERSION (with GDAL) as $GDAL_TAG"
 
+./download.sh $VERSION
+
 # Go up one level to the Dockerfile
 cd ".."
 
@@ -109,10 +137,18 @@ if [[ $1 == *build* ]]; then
   echo "Building GeoServer Docker Image..."
   if [[ "$VERSION" == *"-SNAPSHOT"* ]]; then
     echo "  nightly build from https://build.geoserver.org/geoserver/$BRANCH"
+    echo "  downloading geoserver-$BRANCH-latest-war.zip"
+    wget -c -q -P./geoserver/ \
+         "https://build.geoserver.org/geoserver/$BRANCH/geoserver-$BRANCH-latest-war.zip"
     echo
     build_geoserver_image $VERSION $BUILD "false" $TAG $BRANCH     # without gdal
     build_geoserver_image $VERSION $BUILD "true" $GDAL_TAG $BRANCH # with gdal
   else
+    echo "  release build from https://downloads.sourceforge.net/project/geoserver/GeoServer/${VERSION}"
+    echo "  downloading geoserver-${VERSION}-war.zip"
+    wget -c -q -P./geoserver/ \
+         "https://downloads.sourceforge.net/project/geoserver/GeoServer/${VERSION}/geoserver-${VERSION}-war.zip"
+    echo
     build_geoserver_image $VERSION $BUILD "false" $TAG   # without gdal
     build_geoserver_image $VERSION $BUILD "true" $GDAL_TAG # with gdal
   fi
