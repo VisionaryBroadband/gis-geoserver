@@ -11,8 +11,8 @@ server {
   listen        [::]:443 ssl;
   server_name   localhost;
 
-  ssl_certificate /etc/ssl/certs/wildcard-vcn.com.crt;
-  ssl_certificate_key /etc/ssl/private/wildcard-vcn.com.key;
+  ssl_certificate /etc/ssl/certs/wildcard-vcn-com.crt;
+  ssl_certificate_key /etc/ssl/private/wildcard-vcn-com.key;
 
   ssl_protocols TLSv1.2 TLSv1.3;
   ssl_prefer_server_ciphers on;
