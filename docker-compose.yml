@@ -2,7 +2,7 @@ name: gis
 
 services:
   nginx:
-    image: nginx:1.29.0-alpine@sha256:b2e814d28359e77bd0aa5fed1939620075e4ffa0eb20423cc557b375bd5c14ad
+    image: nginx:1
     ports:
       - "80:80"
       - "443:443"
@@ -18,7 +18,7 @@ services:
     build:
       context: .
       args:
-        - GEOSERVER_VERSION=2.27.0
+        - GS_VERSION=3.0.1
         - CORS_ENABLED=true
         - CORS_ALLOWED_METHODS=GET,POST,PUT,HEAD,OPTIONS
     ports:
@@ -36,9 +36,9 @@ services:
       - POSTGRES_JNDI_RESOURCE_NAME=jdbc/postgres
       - SKIP_DEMO_DATA=true
       - HTTP_SCHEME=https
-      - HTTP_PROXY_NAME=beta-maps.vcn.com
-      - PROXY_BASE_URL=https://beta-maps.vcn.com/geoserver
-      - GEOSERVER_CSRF_WHITELIST=beta-maps.vcn.com,beta-maps.vcn.com:443
+      - HTTP_PROXY_NAME=maps.vcn.com
+      - PROXY_BASE_URL=https://maps.vcn.com/geoserver
+      - GEOSERVER_CSRF_WHITELIST=maps.vcn.com,maps.vcn.com:443
       - ENABLE_JSONP=true
     volumes:
       - ./geoserver_data:/opt/geoserver_data/:Z
@@ -48,8 +48,11 @@ services:
       interval: 1m
       retries: 3
       timeout: 20s
+    depends_on:
+      - postgis
+    restart: unless-stopped
   postgis:
-    image: postgis/postgis:17-3.4-alpine@sha256:5a1dbedac34e0e6663f8b7190d393339571f1cb3ecb2ab2f724524b4f3c7956e
+    image: postgis/postgis:17-3.6-alpine
     ports:
       - "5555:5432"
     environment:
@@ -62,3 +65,4 @@ services:
       interval: 10s
       retries: 5
       timeout: 10s
+    restart: unless-stopped
